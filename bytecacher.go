@@ -9,6 +9,8 @@ import (
 )
 
 type Cacher struct {
+	Debug bool
+
 	lookup func(string) ([]byte, error)
 	path   string
 
@@ -29,6 +31,13 @@ func NewCacher(
 	}
 
 	return cacher
+}
+
+func (c *Cacher) debug(fmt string, rest ...interface{}) {
+	if !c.Debug {
+		return
+	}
+	log.Printf(fmt, rest...)
 }
 
 // getMx gets the mutex for a key, creating it if necessary
@@ -55,7 +64,9 @@ func (c *Cacher) getMx(key string) *sync.RWMutex {
 }
 
 func (c *Cacher) Get(key string) ([]byte, error) {
+	c.debug("checking for %s in cache", key)
 	if ans, err := c.retrieve(key); err == nil {
+		c.debug("found!")
 		return ans, nil
 	}
 
@@ -81,6 +92,7 @@ func (c *Cacher) retrieve(key string) ([]byte, error) {
 }
 
 func (c *Cacher) store(key string) ([]byte, error) {
+	c.debug("cache miss")
 	mx := c.getMx(key)
 	mx.Lock()
 	defer mx.Unlock()
