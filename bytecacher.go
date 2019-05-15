@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 )
 
 type Cacher struct {
@@ -65,7 +66,7 @@ func (c *Cacher) getMx(key string) *sync.RWMutex {
 
 func (c *Cacher) Get(key string) ([]byte, error) {
 	c.debug("checking for %s in cache", key)
-	if ans, err := c.retrieve(key); err == nil {
+	if ans, _, err := c.retrieve(key); err == nil {
 		c.debug("found!")
 		return ans, nil
 	}
@@ -73,22 +74,34 @@ func (c *Cacher) Get(key string) ([]byte, error) {
 	return c.store(key)
 }
 
-func (c *Cacher) retrieve(key string) ([]byte, error) {
+func (c *Cacher) GetMaxAge(key string, maxAge time.Duration) ([]byte, error) {
+	c.debug("checking for %s in cache", key)
+	if ans, mtime, err := c.retrieve(key); err == nil && time.Since(mtime) < maxAge {
+		c.debug("found!")
+		return ans, nil
+	}
+
+	return c.store(key)
+}
+
+func (c *Cacher) retrieve(key string) ([]byte, time.Time, error) {
 	mx := c.getMx(key)
 	mx.RLock()
 	defer mx.RUnlock()
 
 	path := c.filePath(key)
-	if !fileExists(path) {
-		return []byte{}, fmt.Errorf("not stored")
+
+	exists, mtime := fileExists(path)
+	if !exists {
+		return []byte{}, time.Time{}, fmt.Errorf("not stored")
 	}
 
 	dat, err := ioutil.ReadFile(path)
 	if err != nil {
-		return []byte{}, err
+		return []byte{}, time.Time{}, err
 	}
 
-	return dat, nil
+	return dat, mtime, nil
 }
 
 func (c *Cacher) store(key string) ([]byte, error) {
@@ -113,20 +126,24 @@ func (c *Cacher) filePath(key string) string {
 }
 
 // fileExists reports if there is a file at the given path or not.
-func fileExists(filePath string) bool {
+func fileExists(filePath string) (bool, time.Time) {
 
 	info, err := os.Stat(filePath)
 
 	if os.IsNotExist(err) {
-		return false
+		return false, time.Time{}
 	}
 
 	if err == nil {
-		return !info.IsDir()
+		if info.IsDir() {
+			return false, time.Time{}
+		}
+
+		return true, info.ModTime()
 	}
 
 	log.Fatalf("encountered unhandled error %+v while statting file %s", err, filePath)
 
 	// never happens
-	return false
+	return false, time.Time{}
 }
